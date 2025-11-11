@@ -1,0 +1,5 @@
+{
+  "name": "AI Video Prompt Generator",
+  "description": "An application that analyzes an uploaded video and uses the Gemini API to generate a creative and descriptive prompt for text-to-video AI models.",
+  "requestFramePermissions": []
+}
