@@ -82,11 +82,16 @@ const extractFramesFromVideo = (
   });
 };
 
-export const generatePromptFromVideo = async (videoFile: File, existingPrompts: string[] = []): Promise<string[]> => {
-  if (!process.env.API_KEY) {
-    throw new Error("Kunci API tidak ditemukan. Harap atur variabel lingkungan API_KEY.");
+export const generatePromptFromVideo = async (
+    videoFile: File, 
+    apiKey: string, 
+    existingPrompts: string[] = [], 
+    count: number = 5
+): Promise<string[]> => {
+  if (!apiKey) {
+    throw new Error("Kunci API diperlukan.");
   }
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey });
   
   try {
     const frames = await extractFramesFromVideo(videoFile);
@@ -101,11 +106,19 @@ export const generatePromptFromVideo = async (videoFile: File, existingPrompts: 
       },
     }));
 
-    let promptText = `Analisis urutan frame video ini. Jelaskan elemen kunci: subjek, tindakan, lingkungan, warna, dan suasana keseluruhan. Berdasarkan analisis Anda, buatlah daftar 5 prompt yang sangat detail dan kreatif yang dapat digunakan oleh model AI text-to-video untuk membuat video yang serupa atau terinspirasi. Prompt harus menggugah dan deskriptif. Balas HANYA dengan objek JSON yang berisi satu kunci "prompts" yang nilainya adalah larik string (5 prompt).`;
+    let promptText = `Anda adalah seorang analis video ahli. Tugas Anda adalah menganalisis urutan frame video ini dengan cermat. Dasarkan deskripsi Anda HANYA pada bukti visual yang ada di dalam frame. JANGAN membuat, menebak, atau menambahkan detail yang tidak dapat dilihat secara langsung.
+Identifikasi elemen-elemen kunci:
+1. Subjek utama (orang, hewan, objek).
+2. Tindakan spesifik yang terjadi.
+3. Lingkungan atau latar belakang.
+4. Palet warna dan pencahayaan.
+5. Suasana atau mood keseluruhan yang ditimbulkan.
+
+Berdasarkan analisis faktual ini, buatlah daftar ${count} prompt yang sangat detail dan deskriptif untuk model AI text-to-video. Setiap prompt harus secara akurat mencerminkan konten video. Balas HANYA dengan objek JSON yang berisi satu kunci "prompts" yang nilainya adalah larik string (${count} prompt).`;
 
     if (existingPrompts.length > 0) {
       const existingPromptsText = existingPrompts.map(p => `- ${p}`).join('\n');
-      promptText += `\n\nPENTING: Anda sedang dalam proses pembuatan multi-tahap. Harap buat 5 prompt BARU yang secara konseptual berbeda dari prompt yang sudah ada di daftar ini untuk memastikan keragaman:\n${existingPromptsText}`;
+      promptText += `\n\nPENTING: Anda sedang dalam proses pembuatan multi-tahap. Harap buat ${count} prompt BARU yang secara konseptual berbeda dari prompt yang sudah ada di daftar ini untuk memastikan keragaman:\n${existingPromptsText}`;
     }
 
 
@@ -120,6 +133,7 @@ export const generatePromptFromVideo = async (videoFile: File, existingPrompts: 
       contents: contents,
       config: {
         responseMimeType: "application/json",
+        temperature: 0.4,
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -143,8 +157,8 @@ export const generatePromptFromVideo = async (videoFile: File, existingPrompts: 
 
   } catch (error: any) {
     console.error("Kesalahan saat menghasilkan prompt:", error);
-    if (error.message.includes("API key not valid")) {
-        throw new Error("Kunci API tidak valid. Periksa kembali kunci Anda.");
+    if (error.message.includes("API key not valid") || error.message.includes("API key is invalid")) {
+        throw new Error("Kunci API yang Anda berikan tidak valid. Silakan periksa kembali.");
     }
     throw new Error(error.message || "Gagal menghasilkan prompt dari video.");
   }
