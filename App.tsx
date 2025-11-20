@@ -1,5 +1,6 @@
-import React, { useState, useCallback } from 'react';
-import { generatePromptFromVideo } from './services/geminiService';
+
+import React, { useState, useCallback, useRef } from 'react';
+import { generatePromptFromVideo, PromptResult } from './services/geminiService';
 import VideoUploader from './components/VideoUploader';
 import PromptDisplay from './components/PromptDisplay';
 
@@ -29,23 +30,42 @@ const KeyIcon: React.FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
+const StopIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="currentColor">
+        <path fillRule="evenodd" d="M4.5 7.5a3 3 0 013-3h9a3 3 0 013 3v9a3 3 0 01-3 3h-9a3 3 0 01-3-3v-9z" clipRule="evenodd" />
+    </svg>
+);
+
+const STYLES = [
+    { id: 'Cinematic', label: 'Cinematic (Film)' },
+    { id: 'Photorealistic', label: 'Photorealistic (Nyata)' },
+    { id: 'Anime', label: 'Anime / Kartun' },
+    { id: '3D Render', label: '3D Render (Unreal Engine)' },
+    { id: 'Cyberpunk', label: 'Cyberpunk / Neon' },
+    { id: 'Vintage', label: 'Vintage / Retro' },
+    { id: 'Dreamy', label: 'Dreamy / Surreal' },
+];
 
 const App: React.FC = () => {
     const [apiKey, setApiKey] = useState<string>('');
     const [videoFile, setVideoFile] = useState<File | null>(null);
     const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(false);
-    const [generatedPrompts, setGeneratedPrompts] = useState<string[]>([]);
+    const [generatedResults, setGeneratedResults] = useState<PromptResult[]>([]);
     const [error, setError] = useState<string>('');
     const [allCopied, setAllCopied] = useState<boolean>(false);
     const [generationProgress, setGenerationProgress] = useState(0);
-    const [numPromptsToGenerate, setNumPromptsToGenerate] = useState(10);
+    const [numPromptsToGenerate, setNumPromptsToGenerate] = useState(5);
+    const [creativityLevel, setCreativityLevel] = useState<number>(50);
+    const [selectedStyle, setSelectedStyle] = useState<string>('Cinematic');
+    const [userNegativePrompt, setUserNegativePrompt] = useState<string>('');
+    const isStopping = useRef(false);
     
     const PROMPTS_PER_STAGE = 5;
 
     const handleVideoSelect = useCallback((file: File | null) => {
         setVideoFile(file);
-        setGeneratedPrompts([]);
+        setGeneratedResults([]);
         setError('');
         setGenerationProgress(0);
 
@@ -64,37 +84,58 @@ const App: React.FC = () => {
     const handleGeneratePrompt = async () => {
         if (!videoFile || !apiKey) return;
 
+        isStopping.current = false;
         setIsLoading(true);
         setError('');
-        setGeneratedPrompts([]);
+        setGeneratedResults([]);
         setGenerationProgress(0);
         
+        // We keep track of existing prompts to encourage diversity
         let accumulatedPrompts: string[] = [];
         const totalStages = Math.ceil(numPromptsToGenerate / PROMPTS_PER_STAGE);
 
         try {
             for (let i = 0; i < totalStages; i++) {
+                if (isStopping.current) break;
+
                 setGenerationProgress(i + 1);
                 
                 const remainingPrompts = numPromptsToGenerate - accumulatedPrompts.length;
                 const promptsForThisStage = Math.min(PROMPTS_PER_STAGE, remainingPrompts);
 
-                const newPrompts = await generatePromptFromVideo(videoFile, apiKey, accumulatedPrompts, promptsForThisStage);
-                accumulatedPrompts = [...accumulatedPrompts, ...newPrompts];
-                setGeneratedPrompts(prevPrompts => [...prevPrompts, ...newPrompts]);
+                const newResults = await generatePromptFromVideo(
+                    videoFile, 
+                    apiKey, 
+                    accumulatedPrompts, 
+                    promptsForThisStage,
+                    selectedStyle,
+                    userNegativePrompt,
+                    creativityLevel / 100 // Normalize 0-100 to 0-1
+                );
+
+                const newPromptTexts = newResults.map(r => r.prompt);
+                accumulatedPrompts = [...accumulatedPrompts, ...newPromptTexts];
+                setGeneratedResults(prev => [...prev, ...newResults]);
             }
         } catch (err: any) {
-            setError(err.message || 'Gagal membuat prompt. Silakan coba lagi.');
+            if (!isStopping.current) {
+                setError(err.message || 'Gagal membuat prompt. Silakan coba lagi.');
+            }
         } finally {
             setIsLoading(false);
             setGenerationProgress(0);
         }
     };
 
-    const handleCopyAll = () => {
-        if (generatedPrompts.length === 0) return;
+    const handleStop = () => {
+        isStopping.current = true;
+    };
 
-        const allPromptsText = generatedPrompts.join('\n\n');
+
+    const handleCopyAll = () => {
+        if (generatedResults.length === 0) return;
+
+        const allPromptsText = generatedResults.map(res => res.prompt).join('\n\n');
 
         navigator.clipboard.writeText(allPromptsText);
         setAllCopied(true);
@@ -108,10 +149,10 @@ const App: React.FC = () => {
             <div className="container mx-auto max-w-4xl">
                 <header className="text-center mb-8 md:mb-12">
                     <h1 className="text-4xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-500">
-                        Generator Prompt Video AI
+                        Generator Prompt Video Pro
                     </h1>
                     <p className="text-gray-400 mt-4 text-lg">
-                        Unggah video, pilih jumlah prompt, dan biarkan AI menganalisisnya untuk Anda.
+                        Analisis video, pilih gaya, dan dapatkan prompt deskriptif yang presisi.
                     </p>
                 </header>
 
@@ -138,52 +179,126 @@ const App: React.FC = () => {
                         previewUrl={videoPreviewUrl}
                     />
 
-                     <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6 shadow-lg">
-                        <label htmlFor="prompt-count" className="block text-sm font-medium text-gray-300 mb-3">
-                            Jumlah Prompt yang Akan Dibuat: <span className="font-bold text-indigo-400">{numPromptsToGenerate}</span>
-                        </label>
-                        <input
-                            id="prompt-count"
-                            type="range"
-                            min="1"
-                            max="50"
-                            value={numPromptsToGenerate}
-                            onChange={(e) => setNumPromptsToGenerate(parseInt(e.target.value, 10))}
-                            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                        />
+                    {/* Settings Panel */}
+                     <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6 shadow-lg space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Style Selector */}
+                             <div className="col-span-1">
+                                <label className="block text-sm font-medium text-gray-300 mb-3">
+                                    Gaya Visual (Target Style)
+                                </label>
+                                <div className="relative">
+                                    <select
+                                        value={selectedStyle}
+                                        onChange={(e) => setSelectedStyle(e.target.value)}
+                                        className="block w-full rounded-lg border border-gray-600 bg-gray-800/50 py-2.5 px-4 text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm appearance-none"
+                                    >
+                                        {STYLES.map(style => (
+                                            <option key={style.id} value={style.id}>{style.label}</option>
+                                        ))}
+                                    </select>
+                                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
+                                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Prompt Count Slider */}
+                             <div>
+                                <label htmlFor="prompt-count" className="block text-sm font-medium text-gray-300 mb-3">
+                                    Jumlah Prompt: <span className="font-bold text-indigo-400">{numPromptsToGenerate}</span>
+                                </label>
+                                <input
+                                    id="prompt-count"
+                                    type="range"
+                                    min="1"
+                                    max="20"
+                                    value={numPromptsToGenerate}
+                                    onChange={(e) => setNumPromptsToGenerate(parseInt(e.target.value, 10))}
+                                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                                />
+                                 <div className="flex justify-between text-xs text-gray-500 mt-2">
+                                    <span>1</span>
+                                    <span>20</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {/* Creativity Slider */}
+                        <div>
+                            <div className="flex justify-between mb-3">
+                                <label htmlFor="creativity" className="block text-sm font-medium text-gray-300">
+                                    Tingkat Kreativitas
+                                </label>
+                                <span className="text-sm font-bold text-indigo-400">{creativityLevel}%</span>
+                            </div>
+                            <input
+                                id="creativity"
+                                type="range"
+                                min="0"
+                                max="100"
+                                value={creativityLevel}
+                                onChange={(e) => setCreativityLevel(parseInt(e.target.value, 10))}
+                                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                            />
+                            <div className="flex justify-between text-xs text-gray-500 mt-2">
+                                <span>Faktual/Akurat</span>
+                                <span>Seimbang</span>
+                                <span>Imajinatif (Tetap Relevan)</span>
+                            </div>
+                        </div>
+
+                        {/* User Negative Prompt Input */}
+                        <div>
+                             <label htmlFor="negative-prompt" className="block text-sm font-medium text-gray-300 mb-2">
+                                Elemen yang Dihindari (Negative Prompt)
+                            </label>
+                            <input
+                                type="text"
+                                id="negative-prompt"
+                                value={userNegativePrompt}
+                                onChange={(e) => setUserNegativePrompt(e.target.value)}
+                                placeholder="Contoh: watermark, orang, mobil, blur..."
+                                className="block w-full rounded-lg border border-gray-600 bg-gray-800/50 py-2.5 px-4 text-white shadow-sm placeholder-gray-500 focus:border-red-500 focus:ring-red-500 sm:text-sm"
+                            />
+                             <p className="text-xs text-gray-500 mt-2">
+                                Gemini akan menggunakan ini sebagai filter agar <strong>tidak</strong> mendeskripsikan elemen tersebut dalam hasil prompt.
+                            </p>
+                        </div>
                     </div>
 
 
                     <div className="flex justify-center">
                         <button
-                            onClick={handleGeneratePrompt}
-                            disabled={!videoFile || isLoading || !apiKey}
-                            className="flex items-center justify-center gap-3 px-8 py-4 bg-indigo-600 text-white font-semibold rounded-full shadow-lg hover:bg-indigo-700 disabled:bg-gray-500 disabled:cursor-not-allowed transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50 min-w-[240px]"
+                            onClick={isLoading ? handleStop : handleGeneratePrompt}
+                            disabled={!videoFile && !isLoading || !apiKey && !isLoading}
+                            className={`flex items-center justify-center gap-3 px-8 py-4 font-semibold rounded-full shadow-xl transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 min-w-[280px] ${
+                                isLoading
+                                ? 'bg-red-600 hover:bg-red-700 focus:ring-red-500 text-white'
+                                : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 focus:ring-indigo-500 text-white disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none'
+                            }`}
                         >
                             {isLoading ? (
                                 <>
-                                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    <span>Membuat tahap {generationProgress} dari {totalStages}...</span>
+                                    <StopIcon className="w-6 h-6 animate-pulse" />
+                                    <span>Hentikan ({generationProgress} / {totalStages})</span>
                                 </>
                             ) : (
                                 <>
                                     <SparklesIcon className="w-6 h-6" />
-                                    <span>Buat {numPromptsToGenerate} Prompt</span>
+                                    <span>Buat Prompt {selectedStyle}</span>
                                 </>
                             )}
                         </button>
                     </div>
 
                     {error && (
-                        <div className="bg-red-900/50 border border-red-500 text-red-300 px-4 py-3 rounded-lg text-center">
+                        <div className="bg-red-900/50 border border-red-500 text-red-300 px-4 py-3 rounded-lg text-center animate-fade-in">
                             <p><strong>Error:</strong> {error}</p>
                         </div>
                     )}
 
-                    {generatedPrompts.length > 0 && (
+                    {generatedResults.length > 0 && (
                         <div className="space-y-6">
                              { !isLoading && (
                                 <div className="flex justify-center -mb-2">
@@ -192,16 +307,16 @@ const App: React.FC = () => {
                                         className={`flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-full transition-all duration-200 ${
                                             allCopied
                                                 ? 'bg-green-600 text-white'
-                                                : 'bg-purple-600 hover:bg-purple-700 text-white shadow-md'
+                                                : 'bg-gray-700 hover:bg-gray-600 text-white shadow-md border border-gray-500'
                                         }`}
                                     >
                                         {allCopied ? <CheckIcon className="w-5 h-5" /> : <CopyIcon className="w-5 h-5" />}
-                                        {allCopied ? 'Semua Tersalin!' : 'Salin Semua Prompt'}
+                                        {allCopied ? 'Semua Tersalin!' : 'Salin Semua ke Clipboard'}
                                     </button>
                                 </div>
                             )}
-                            {generatedPrompts.slice(0, numPromptsToGenerate).map((prompt, index) => (
-                                <PromptDisplay key={index} prompt={prompt} index={index} />
+                            {generatedResults.slice(0, numPromptsToGenerate).map((result, index) => (
+                                <PromptDisplay key={index} result={result} index={index} />
                             ))}
                         </div>
                     )}
@@ -210,6 +325,15 @@ const App: React.FC = () => {
                     <p>Didukung oleh Gemini API</p>
                 </footer>
             </div>
+             <style>{`
+                .animate-fade-in {
+                    animation: fadeIn 0.5s ease-in-out;
+                }
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(10px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+            `}</style>
         </div>
     );
 };

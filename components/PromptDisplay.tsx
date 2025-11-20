@@ -1,7 +1,9 @@
+
 import React, { useState } from 'react';
+import { PromptResult } from '../services/geminiService';
 
 interface PromptDisplayProps {
-    prompt: string;
+    result: PromptResult;
     index: number;
 }
 
@@ -17,33 +19,43 @@ const CheckIcon: React.FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
-
-const PromptDisplay: React.FC<PromptDisplayProps> = ({ prompt, index }) => {
+const PromptDisplay: React.FC<PromptDisplayProps> = ({ result, index }) => {
     const [copied, setCopied] = useState(false);
 
     const handleCopy = () => {
-        navigator.clipboard.writeText(prompt);
+        navigator.clipboard.writeText(result.prompt);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
 
     return (
-        <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6 shadow-lg animate-fade-in">
+        <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6 shadow-lg animate-fade-in overflow-hidden transition-all hover:border-indigo-500/50">
             <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold text-gray-200">Prompt yang Dihasilkan #{index + 1}</h2>
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-600 text-white font-bold text-sm shadow-md">
+                        {index + 1}
+                    </div>
+                    <h2 className="text-lg font-semibold text-gray-200">Generated Prompt</h2>
+                </div>
                 <button
                     onClick={handleCopy}
-                    className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 ${copied ? 'bg-green-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}
+                    className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg transition-all duration-200 shadow-sm ${
+                        copied 
+                        ? 'bg-green-600 text-white' 
+                        : 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white border border-gray-600'
+                    }`}
                 >
                     {copied ? <CheckIcon className="w-4 h-4" /> : <CopyIcon className="w-4 h-4" />}
-                    {copied ? 'Tersalin!' : 'Salin'}
+                    {copied ? 'Tersalin' : 'Salin'}
                 </button>
             </div>
-            <div className="bg-gray-900/50 p-4 rounded-lg">
-                <p className="text-gray-300 whitespace-pre-wrap leading-relaxed">
-                    {prompt}
+
+            <div className="bg-gray-900/60 p-5 rounded-xl border border-gray-700/50 hover:bg-gray-900/80 transition-colors">
+                <p className="text-gray-200 text-base leading-relaxed whitespace-pre-wrap font-light">
+                    {result.prompt}
                 </p>
             </div>
+
              <style>{`
                 @keyframes fade-in {
                     from { opacity: 0; transform: translateY(10px); }
